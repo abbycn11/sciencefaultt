@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Tectonic & Philippine Volcano Hazard Simulator - Group 1</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#050811',
+                        cardbg: '#0c1324',
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        #map { height: 100vh; width: 100vw; z-index: 10; background: #050811; }
+
+        .custom-popup .leaflet-popup-content-wrapper {
+            background: #0c1324;
+            color: #f8fafc;
+            border-radius: 0.75rem;
+            border: 1px solid #1e293b;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7);
+        }
+        .custom-popup .leaflet-popup-tip {
+            background: #0c1324;
+        }
+
+        /* Tooltips for trenches / boundaries */
+        .tect-tooltip {
+            background: #0c1324;
+            color: #f8fafc;
+            border: 1px solid #334155;
+            border-radius: 0.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.6);
+        }
+        .tect-tooltip::before { display: none; }
+
+        /* Ring of Fire label on the map */
+        .rof-label {
+            background: rgba(127, 29, 29, 0.9);
+            color: #fff;
+            border: 1px solid #f87171;
+            border-radius: 9999px;
+            padding: 3px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            white-space: nowrap;
+            box-shadow: 0 0 16px rgba(239, 68, 68, 0.6);
+        }
+
+        /* Shake animation for eruption */
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-2px, -3px) rotate(-1.5deg); }
+            20% { transform: translate(-4px, 0px) rotate(1.5deg); }
+            30% { transform: translate(4px, 3px) rotate(0deg); }
+            40% { transform: translate(2px, -2px) rotate(1deg); }
+            50% { transform: translate(-2px, 3px) rotate(-1deg); }
+            60% { transform: translate(-4px, 2px) rotate(0deg); }
+            70% { transform: translate(4px, 2px) rotate(-1.5deg); }
+            80% { transform: translate(-2px, -2px) rotate(1.5deg); }
+            100% { transform: translate(1px, -3px) rotate(0deg); }
+        }
+        .animate-shake {
+            animation: shake 0.5s infinite;
+        }
+
+        .leaflet-tile-pane {
+            filter: contrast(110%) saturate(105%) brightness(95%);
+        }
+    </style>
+</head>
+<body class="bg-darkbg text-slate-100 overflow-hidden m-0 p-0 selection:bg-red-500 selection:text-white">
+
+    <!-- Top Control Bar / Header -->
+    <header class="absolute top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-4 pointer-events-none">
+        <div class="bg-cardbg/90 backdrop-blur-md px-5 py-3 rounded-2xl border border-slate-700/60 shadow-2xl pointer-events-auto flex items-center space-x-3">
+            <div class="bg-gradient-to-tr from-red-600 to-amber-500 p-2.5 rounded-xl shadow-lg shadow-red-900/40 text-white">
+                <i class="fa-solid fa-volcano text-xl animate-pulse"></i>
+            </div>
+            <div>
+                <span class="text-[10px] uppercase tracking-widest text-red-400 font-bold font-mono">Group 1 • Challenge 1</span>
+                <h1 class="font-bold text-lg tracking-tight text-white flex items-center gap-2">
+                    Modeling Earth's Dynamic Processes
+                </h1>
+            </div>
+        </div>
+
+        <!-- Mode & Action Buttons -->
+        <div class="flex items-center gap-2.5 pointer-events-auto flex-wrap">
+            <button onclick="drawRingOfFireArc()" id="rofArcBtn" class="bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-semibold px-4 py-2.5 rounded-xl shadow-lg border border-red-400/30 flex items-center gap-2 text-sm transition-all transform hover:scale-105 active:scale-95 font-mono">
+                <i class="fa-solid fa-fire"></i> Ring of Fire
+            </button>
+            <button onclick="focusOnPhilippines()" id="phFocusBtn" class="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-semibold px-4 py-2.5 rounded-xl shadow-lg border border-amber-400/30 flex items-center gap-2 text-sm transition-all transform hover:scale-105 active:scale-95 font-mono">
+                <i class="fa-solid fa-crosshairs"></i> Focus on PH
+            </button>
+            <button onclick="resetMapView()" class="bg-slate-800/90 hover:bg-slate-700 text-slate-200 font-medium px-4 py-2.5 rounded-xl shadow-lg border border-slate-700 flex items-center gap-2 text-sm transition-all font-mono">
+                <i class="fa-solid fa-globe"></i> Reset View
+            </button>
+        </div>
+    </header>
+
+    <!-- Left Floating Layer Panel -->
+    <div class="absolute top-24 left-4 z-20 w-72 max-h-[calc(100vh-7rem)] overflow-y-auto bg-cardbg/95 backdrop-blur-md rounded-2xl border border-slate-700/60 shadow-2xl p-4 pointer-events-none md:pointer-events-auto hidden md:block">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center justify-between font-mono">
+            <span>GIS Map Layers</span>
+            <i class="fa-solid fa-layer-group text-slate-500"></i>
+        </h2>
+        <div class="space-y-2 text-sm">
+            <label class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/60 cursor-pointer transition-colors">
+                <span class="flex items-center gap-2.5 text-slate-300 text-xs font-medium">
+                    <span class="w-3 h-3 rounded-full bg-rose-500 inline-block shadow-[0_0_8px_rgba(244,63,94,0.9)]"></span>
+                    Pacific Ring of Fire
+                </span>
+                <input type="checkbox" id="layerRing" checked onchange="toggleLayer('ring')" class="w-4 h-4 rounded bg-slate-900 border-slate-700 text-rose-500 focus:ring-rose-500 cursor-pointer">
+            </label>
+            <label class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/60 cursor-pointer transition-colors">
+                <span class="flex items-center gap-2.5 text-slate-300 text-xs font-medium">
+                    <span class="w-3 h-3 rounded-full bg-red-500 inline-block shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>
+                    Volcanoes
+                </span>
+                <input type="checkbox" id="layerVolcanoes" checked onchange="toggleLayer('volcanoes')" class="w-4 h-4 rounded bg-slate-900 border-slate-700 text-red-500 focus:ring-red-500 cursor-pointer">
+            </label>
+            <label class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/60 cursor-pointer transition-colors">
+                <span class="flex items-center gap-2.5 text-slate-300 text-xs font-medium">
+                    <span class="w-3 h-3 rounded-full bg-amber-500 inline-block shadow-[0_0_8px_rgba(245,158,11,0.8)]"></span>
+                    Tectonic Plate Boundaries
+                </span>
+                <input type="checkbox" id="layerPlates" checked onchange="toggleLayer('plates')" class="w-4 h-4 rounded bg-slate-900 border-slate-700 text-amber-500 focus:ring-amber-500 cursor-pointer">
+            </label>
+            <label class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/60 cursor-pointer transition-colors">
+                <span class="flex items-center gap-2.5 text-slate-300 text-xs font-medium">
+                    <span class="w-3 h-3 rounded-full bg-orange-500 inline-block shadow-[0_0_8px_rgba(249,115,22,0.8)]"></span>
+                    Fault Lines
+                </span>
+                <input type="checkbox" id="layerFaults" checked onchange="toggleLayer('faults')" class="w-4 h-4 rounded bg-slate-900 border-slate-700 text-orange-500 focus:ring-orange-500 cursor-pointer">
+            </label>
+            <label class="flex items-center justify-between p-2 rounded-xl hover:bg-slate-800/60 cursor-pointer transition-colors">
+                <span class="flex items-center gap-2.5 text-slate-300 text-xs font-medium">
+                    <span class="w-3 h-3 rounded-full bg-cyan-400 inline-block shadow-[0_0_8px_rgba(34,211,238,0.8)]"></span>
+                    Oceanic Trenches
+                </span>
+                <input type="checkbox" id="layerTrenches" checked onchange="toggleLayer('trenches')" class="w-4 h-4 rounded bg-slate-900 border-slate-700 text-cyan-500 focus:ring-cyan-500 cursor-pointer">
+            </label>
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-slate-700/60">
+            <h3 class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider font-mono">Legend</h3>
+            <div class="space-y-1.5 text-[11px] text-slate-300 font-mono">
+                <div class="flex items-center gap-2"><span class="inline-block w-6 border-t-[3px] border-dashed border-red-500"></span> Ring of Fire (volcanic arc)</div>
+                <div class="flex items-center gap-2"><span class="inline-block w-6 border-t-[3px] border-dashed border-amber-400"></span> Pacific Plate boundary</div>
+                <div class="flex items-center gap-2"><span class="inline-block w-6 border-t-[3px] border-cyan-400"></span> Oceanic trench</div>
+                <div class="flex items-center gap-2"><span class="inline-block w-6 border-t-[3px] border-orange-500"></span> Fault line</div>
+            </div>
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-slate-700/60">
+            <h3 class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider font-mono">Top 5 PH Volcanoes</h3>
+            <div id="phVolcanoQuickList" class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Interactive Map Container -->
+    <div id="map"></div>
+
+    <!-- Simulation & Details Modal -->
+    <div id="simulationModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md hidden opacity-0 transition-opacity duration-300">
+        <div id="modalCard" class="bg-cardbg border border-slate-700/80 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden transform scale-95 transition-transform duration-300 flex flex-col max-h-[90vh]">
+            <div class="relative h-56 w-full bg-slate-900 overflow-hidden flex items-center justify-center border-b border-slate-700">
+                <canvas id="eruptionCanvas" class="absolute inset-0 w-full h-full object-cover"></canvas>
+                <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent"></div>
+
+                <button onclick="closeSimulationModal()" class="absolute top-4 right-4 z-10 bg-slate-900/80 hover:bg-red-600 text-slate-300 hover:text-white w-9 h-9 rounded-full flex items-center justify-center transition-all border border-slate-700">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+
+                <div class="absolute bottom-4 left-6 right-6 z-10 flex items-end justify-between">
+                    <div>
+                        <span id="modalBadge" class="bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-bold px-2.5 py-1 rounded-lg uppercase tracking-wider mb-1 inline-block">Active Stratovolcano</span>
+                        <h2 id="modalTitle" class="text-2xl md:text-3xl font-extrabold text-white tracking-tight">Mayon Volcano</h2>
+                    </div>
+                    <div class="text-right hidden sm:block">
+                        <span class="text-xs text-slate-400 block font-mono">Elevation</span>
+                        <span id="modalElevation" class="text-lg font-bold text-amber-400 font-mono">2,462 m</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-6 overflow-y-auto space-y-6">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="bg-slate-900/60 p-3 rounded-2xl border border-slate-800 text-center">
+                        <span class="text-xs text-slate-400 block mb-1 font-mono"><i class="fa-solid fa-location-dot text-red-400 mr-1"></i> Location</span>
+                        <span id="modalLocation" class="text-sm font-semibold text-slate-200">Albay, Bicol</span>
+                    </div>
+                    <div class="bg-slate-900/60 p-3 rounded-2xl border border-slate-800 text-center">
+                        <span class="text-xs text-slate-400 block mb-1 font-mono"><i class="fa-solid fa-triangle-exclamation text-amber-400 mr-1"></i> Alert Status</span>
+                        <span id="modalStatus" class="text-sm font-semibold text-amber-400">Level 3 (Unrest)</span>
+                    </div>
+                    <div class="bg-slate-900/60 p-3 rounded-2xl border border-slate-800 text-center">
+                        <span class="text-xs text-slate-400 block mb-1 font-mono"><i class="fa-solid fa-clock-rotate-left text-blue-400 mr-1"></i> Last Eruption</span>
+                        <span id="modalLastEruption" class="text-sm font-semibold text-slate-200">2023</span>
+                    </div>
+                    <div class="bg-slate-900/60 p-3 rounded-2xl border border-slate-800 text-center">
+                        <span class="text-xs text-slate-400 block mb-1 font-mono"><i class="fa-solid fa-skull text-rose-400 mr-1"></i> Danger Radius</span>
+                        <span id="modalRadius" class="text-sm font-semibold text-slate-200">6–8 km Permanent</span>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <h3 class="text-sm font-bold uppercase tracking-wider text-slate-400 font-mono">Geological Profile & Eruption History</h3>
+                    <p id="modalDescription" class="text-slate-300 text-sm leading-relaxed">
+                        Mayon Volcano is famous for its nearly perfect conical shape. It is the most active volcano in the Philippines, having erupted over 50 times in the past 400 years. Its explosive eruptions often generate deadly pyroclastic flows, mudflows (lahars), and ash plumes.
+                    </p>
+                </div>
+
+                <div class="bg-gradient-to-r from-red-950/40 to-orange-950/40 border border-red-500/30 p-4 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div>
+                        <h4 class="font-bold text-white text-sm flex items-center gap-2">
+                            <i class="fa-solid fa-atom text-red-500 animate-spin"></i> Seismic Disaster Simulation
+                        </h4>
+                        <p class="text-xs text-slate-400 mt-0.5">Trigger real-time ash plumes, lava cascading, and ground shaking vibration.</p>
+                    </div>
+                    <button onclick="triggerEruptionSimulation()" class="w-full sm:w-auto bg-red-600 hover:bg-red-500 text-white font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-red-600/30 flex items-center justify-center gap-2 text-sm transition-all transform hover:scale-105 active:scale-95 font-mono">
+                        <i class="fa-solid fa-burst"></i> Simulate Eruption & Shake
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+        // ------------------------------------------------------------------
+        // Pacific-centered map.
+        // Longitudes are shifted to a continuous 0–360 scale (e.g. -120° -> 240°)
+        // so lines that cross the antimeridian (180°) draw correctly instead of
+        // streaking across the whole map. Tiles wrap automatically.
+        // ------------------------------------------------------------------
+        const PACIFIC_CENTER = [5, 193];
+        const DEFAULT_ZOOM = window.innerWidth < 900 ? 2 : 3;
+
+        // Convert [lat, lng] pairs (lng in -180..180) to the Pacific-centered scale
+        const P = pts => pts.map(([lat, lng]) => [lat, lng < 0 ? lng + 360 : lng]);
+        const PP = ([lat, lng]) => [lat, lng < 0 ? lng + 360 : lng];
+
+        const map = L.map('map', {
+            zoomControl: false,
+            attributionControl: false,
+            worldCopyJump: false,
+            maxBounds: [[-85, -540], [85, 540]],
+            maxBoundsViscosity: 1.0
+        }).setView(PACIFIC_CENTER, DEFAULT_ZOOM);
+
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 18,
+            minZoom: 2,
+            attribution: 'Esri & GIS Community'
+        }).addTo(map);
+
+        L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 18,
+            minZoom: 2,
+            opacity: 0.8
+        }).addTo(map);
+
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+        // Layer Groups (plates & trenches drawn below the Ring of Fire so the loop stays on top)
+        const plateLayer = L.layerGroup().addTo(map);
+        const faultLayer = L.layerGroup().addTo(map);
+        const trenchLayer = L.layerGroup().addTo(map);
+        const ringOfFireArcLayer = L.layerGroup().addTo(map);
+        const volcanoLayer = L.layerGroup().addTo(map);
+
+        // ------------------------------------------------------------------
+        // DATA
+        // ------------------------------------------------------------------
+
+        // Top 5 Most Active Volcanoes in the Philippines
+        const top5Volcanoes = [
+            {
+                id: 'mayon',
+                name: '1. Mayon Volcano',
+                lat: 13.2573,
+                lng: 123.6856,
+                elevation: '2,462 m',
+                location: 'Albay, Bicol Region',
+                status: 'Level 3 (High Unrest)',
+                lastEruption: '2023',
+                radius: '6–8 km PDZ',
+                desc: 'Mayon Volcano is renowned worldwide for its iconic near-perfect symmetrical cone. As the most active volcano in the Philippines, it produces frequent Strombolian to explosive eruptions accompanied by pyroclastic density currents and lahars.',
+                badge: 'Top 1 Most Active'
+            },
+            {
+                id: 'taal',
+                name: '2. Taal Volcano',
+                lat: 14.0020,
+                lng: 120.9932,
+                elevation: '311 m',
+                location: 'Batangas, CALABARZON',
+                status: 'Level 1 (Abnormal)',
+                lastEruption: '2022',
+                radius: 'Entire Volcano Island',
+                desc: 'Taal is a complex caldera volcano system comprising a lake with an island inside a lake. Known for violent phreatomagmatic eruptions that project massive steam and ash columns across Luzon.',
+                badge: 'Top 2 Active'
+            },
+            {
+                id: 'kanlaon',
+                name: '3. Mount Kanlaon',
+                lat: 10.4138,
+                lng: 123.1319,
+                elevation: '2,435 m',
+                location: 'Negros Island',
+                status: 'Level 2 (Increasing Unrest)',
+                lastEruption: '2024',
+                radius: '4 km Permanent Danger',
+                desc: 'The highest peak in central Philippines, Kanlaon is a stratovolcano featuring multiple craters and active fumarolic activity, frequently producing ash ejections.',
+                badge: 'Top 3 Active'
+            },
+            {
+                id: 'bulusan',
+                name: '4. Mount Bulusan',
+                lat: 12.7667,
+                lng: 124.0500,
+                elevation: '1,565 m',
+                location: 'Sorsogon, Bicol Region',
+                status: 'Level 1 (Abnormal)',
+                lastEruption: '2022',
+                radius: '4 km Permanent Danger',
+                desc: 'Bulusan occupies the southeastern end of the Bicol volcanic arc. It is a frequent producer of sudden phreatic eruptions driven by steam pressure beneath its summit craters.',
+                badge: 'Top 4 Active'
+            },
+            {
+                id: 'pinatubo',
+                name: '5. Mount Pinatubo',
+                lat: 15.1300,
+                lng: 120.3500,
+                elevation: '1,486 m',
+                location: 'Zambales / Tarlac / Pampanga',
+                status: 'Normal (Post-Caldera)',
+                lastEruption: '1991 (Historical Cataclysm)',
+                radius: 'Summit Caldera Lake',
+                desc: 'Famous for its cataclysmic eruption on June 15, 1991—the second-largest terrestrial eruption of the 20th century—which caused global stratospheric cooling and massive lahar flows.',
+                badge: 'Top 5 Active'
+            }
+        ];
+
+        // Other Pacific Ring of Fire volcanoes (real coordinates; shifted by P())
+        const ringOfFireVolcanoes = [
+            { name: 'Mount Fuji', lat: 35.3606, lng: 138.7274 },
+            { name: 'Mount Merapi', lat: -7.5407, lng: 110.4457 },
+            { name: 'Krakatau', lat: -6.1021, lng: 105.4230 },
+            { name: 'Klyuchevskaya Sopka', lat: 56.0556, lng: 160.6420 },
+            { name: 'Mount Redoubt', lat: 60.4853, lng: -152.7433 },
+            { name: 'Mount St. Helens', lat: 46.1914, lng: -122.1956 },
+            { name: 'Mount Rainier', lat: 46.8523, lng: -121.7603 },
+            { name: 'Popocatépetl', lat: 19.0225, lng: -98.6278 },
+            { name: 'Nevado del Ruiz', lat: 4.8920, lng: -75.3240 },
+            { name: 'Cotopaxi', lat: -0.6841, lng: -78.4378 },
+            { name: 'Villarrica', lat: -39.4207, lng: -71.9394 },
+            { name: 'Mount Ruapehu', lat: -39.2818, lng: 175.5648 }
+        ];
+
+        // ------------------------------------------------------------------
+        // PACIFIC RING OF FIRE — continuous volcanic arc horseshoe
+        // (South America → Central America → Mexico → N. America → Aleutians →
+        //  Kamchatka → Kurils → Japan → Philippines → New Guinea → Vanuatu →
+        //  Tonga–Kermadec → New Zealand)
+        // ------------------------------------------------------------------
+        const ringOfFireMainArc = P([
+            [-54, -70], [-45, -73], [-38, -71.5], [-33, -70], [-27, -68.5], [-20, -68.5], [-15, -71.5], [-8, -78], [-1, -78.3],
+            [4.9, -75.3], [8, -80], [10, -84.5], [13, -88], [14.5, -91.5], [16, -95], [19, -99], [19.5, -104],
+            [23, -108.5], [28, -113], [33, -117.5], [37, -122], [41, -122.3], [46, -122.2], [49, -124], [54, -130], [58, -136],
+            [60, -147], [60.5, -152.5], [58, -156], [55, -161], [53.5, -167], [52, -174], [51.5, -179],
+            [52.5, 173], [53.5, 165], [54, 160], [56, 161], [52, 158.5], [48, 154], [44, 147.5], [41, 143],
+            [37, 141], [34, 137], [32.5, 132], [28, 129], [24, 123], [21, 121.5], [18, 121.5], [14.5, 121.5],
+            [13, 123.5], [10.5, 125], [7, 126.3], [3, 127], [0.5, 128], [-2.5, 134], [-3.5, 141], [-5.5, 147],
+            [-7.5, 154], [-10, 161], [-15.5, 167.5], [-20, 169.5],
+            [-21, -175], [-25, -177], [-30, -178.5], [-35, -179], [-38, 177.5], [-39.3, 175.6]
+        ]);
+
+        // Sunda arc branch of the Ring of Fire (Sumatra → Java → Banda Sea)
+        const ringOfFireSundaBranch = P([
+            [5.5, 95.5], [2, 97.5], [-1, 100.5], [-5, 104], [-7.3, 108], [-8.3, 113], [-8.5, 118], [-8.5, 123], [-7.5, 128], [-5.5, 131.5]
+        ]);
+
+        // Glow underlay + bright dashed line so the ring reads clearly on satellite imagery
+        [ringOfFireMainArc, ringOfFireSundaBranch].forEach(path => {
+            L.polyline(path, { color: '#ef4444', weight: 14, opacity: 0.18, lineCap: 'round', lineJoin: 'round', interactive: false }).addTo(ringOfFireArcLayer);
+            L.polyline(path, { color: '#ef4444', weight: 5, opacity: 0.95, dashArray: '10, 8', lineCap: 'round', lineJoin: 'round' })
+                .bindTooltip('Pacific Ring of Fire — ~75% of Earth\'s volcanoes & ~90% of earthquakes', { sticky: true, className: 'tect-tooltip' })
+                .addTo(ringOfFireArcLayer);
+        });
+
+        // Labels along the ring
+        [
+            { pos: [35, 236], text: 'Pacific Ring of Fire' },
+            { pos: [-20, 288], text: 'Andean Volcanic Belt' },
+            { pos: [43, 150], text: 'Japan–Kuril Arc' }
+        ].forEach(l => {
+            L.marker(l.pos, {
+                interactive: false,
+                icon: L.divIcon({ className: '', html: `<div class="rof-label">${l.text}</div>`, iconSize: [0, 0], iconAnchor: [-6, 10] })
+            }).addTo(ringOfFireArcLayer);
+        });
+
+        // ------------------------------------------------------------------
+        // PLATE BOUNDARIES
+        // ------------------------------------------------------------------
+
+        // Pacific Plate outline (counter-clockwise from Kamchatka)
+        const pacificPlateBoundary = P([
+            [55, 162],                                                   // Kamchatka
+            [52, 175], [51.5, 180], [52.5, -172], [54, -162], [57, -153], // Aleutian arc
+            [58.5, -146],                                                // Gulf of Alaska
+            [55, -134], [50, -129.5], [46, -127.5], [41, -126.5],        // Queen Charlotte → Cascadia/Juan de Fuca
+            [37, -122.5], [34, -118.5], [31, -115.5], [27, -111.5], [23.5, -108.5], // San Andreas → Gulf of California
+            [15, -106], [8, -104.5], [0, -102], [-8, -108], [-20, -113.5], [-33, -111.5], [-45, -111], [-55, -134], // East Pacific Rise
+            [-60, -150], [-63, -170], [-64, -180], [-62, 170], [-56, 160], // Pacific–Antarctic Ridge
+            [-49, 163], [-46, 167], [-42, 172.5],                        // Macquarie / Alpine Fault
+            [-39, 178], [-33, -178.5], [-27, -176], [-21, -175], [-16, -173.5], // Hikurangi / Kermadec / Tonga
+            [-12, 172], [-9, 162], [-6.5, 154], [-4, 146], [-1.5, 139],  // Solomon / New Britain / N. New Guinea
+            [3, 136], [8, 138.5], [11, 142.5],                           // Caroline / Yap region
+            [16, 147.5], [22, 146.3], [26, 143.2], [30, 142.3], [35, 142], // Mariana / Izu–Bonin
+            [39, 144], [43, 147.5], [47, 152], [51, 157.5], [55, 162]    // Japan / Kuril–Kamchatka
+        ]);
+
+        L.polygon(pacificPlateBoundary, {
+            color: '#fbbf24', weight: 3.5, dashArray: '8, 8', fillColor: '#f59e0b', fillOpacity: 0.07, lineJoin: 'round'
+        }).bindTooltip('Pacific Plate boundary', { sticky: true, className: 'tect-tooltip' }).addTo(plateLayer);
+
+        // Other major plate boundaries (lighter, for context)
+        const otherBoundaries = [
+            { name: 'Mid-Atlantic Ridge (divergent)', color: '#a78bfa', pts: [[64, -22], [50, -30], [35, -35], [15, -45], [0, -14], [-20, -13], [-40, -14], [-55, -3]] },
+            { name: 'Alpine–Himalayan Belt (convergent)', color: '#f472b6', pts: [[36, -6], [37, 14], [39, 26], [37, 45], [33, 57], [30, 68], [32, 78], [28, 90], [25, 97]] },
+            { name: 'East African Rift (divergent)', color: '#a78bfa', pts: [[12, 42], [7, 38], [0, 36], [-8, 34], [-15, 35]] },
+            { name: 'Nazca–South American boundary', color: '#fbbf24', pts: [[2, -81], [-10, -80], [-20, -71], [-33, -72], [-45, -76]] },
+            { name: 'Philippine Sea Plate boundary', color: '#fbbf24', pts: [[24, 122], [20, 126], [12, 127], [6, 127], [1, 128], [3, 137], [11, 142], [24, 143], [34, 141], [34, 137], [31, 132], [26, 128]] }
+        ];
+        otherBoundaries.forEach(b => {
+            L.polyline(P(b.pts), { color: b.color, weight: 2.5, opacity: 0.8, dashArray: '4, 7' })
+                .bindTooltip(b.name, { sticky: true, className: 'tect-tooltip' })
+                .addTo(plateLayer);
+        });
+
+        // ------------------------------------------------------------------
+        // FAULT LINES
+        // ------------------------------------------------------------------
+        const faultLines = [
+            { name: 'Philippine Fault Zone', pts: [[18.5, 122.0], [16.0, 121.2], [14.5, 121.5], [13.0, 123.5], [11.0, 124.8], [9.5, 125.5], [7.5, 126.0]] },
+            { name: 'San Andreas Fault', pts: [[32.7, -115.5], [34.0, -118.0], [36.0, -120.5], [38.0, -122.5]] },
+            { name: 'Alpine Fault (New Zealand)', pts: [[-46, 166.8], [-44, 168.8], [-42.5, 171.5], [-41.3, 173.3]] },
+            { name: 'North Anatolian Fault', pts: [[40.5, 30], [40.8, 34], [40.7, 38], [39.5, 41]] }
+        ];
+        faultLines.forEach(f => L.polyline(P(f.pts), { color: '#f97316', weight: 3.5, opacity: 0.95 })
+            .bindTooltip(f.name, { sticky: true, className: 'tect-tooltip' }).addTo(faultLayer));
+
+        // ------------------------------------------------------------------
+        // OCEANIC TRENCHES — full Pacific coverage
+        // ------------------------------------------------------------------
+        const trenches = [
+            { name: 'Philippine Trench', pts: [[19, 124.8], [16, 126.6], [12, 126.9], [9, 127.2], [6, 127.2], [3, 127.6]] },
+            { name: 'Manila Trench', pts: [[21, 119.8], [18, 119.5], [15, 119.4], [12.5, 119.9]] },
+            { name: 'Mariana Trench', pts: [[24, 143.3], [20.5, 146.2], [17, 147.6], [14, 147.3], [12, 144.5], [11.3, 142.2]] },
+            { name: 'Izu–Bonin Trench', pts: [[35, 141.7], [31, 142.6], [27, 143]] },
+            { name: 'Japan Trench', pts: [[42, 144.7], [39, 144.2], [36, 142.9], [34.5, 141.8]] },
+            { name: 'Nankai Trough', pts: [[34, 137.5], [33, 135], [32, 132.5]] },
+            { name: 'Ryukyu Trench', pts: [[31, 131.5], [28, 130], [25, 127], [23.5, 124]] },
+            { name: 'Kuril–Kamchatka Trench', pts: [[52.5, 160.5], [49.5, 157], [46.5, 153.5], [43.5, 149.5], [42.5, 146]] },
+            { name: 'Aleutian Trench', pts: [[52, 173], [50.7, 179], [51, -175], [52.5, -169], [54, -162], [55.3, -156], [57, -150]] },
+            { name: 'Cascadia Subduction Zone', pts: [[50.5, -129], [47, -125.5], [43, -125.5], [40.5, -125.3]] },
+            { name: 'Middle America Trench', pts: [[18, -104.5], [16.3, -99.5], [14, -94.5], [11.5, -88], [8.5, -84]] },
+            { name: 'Peru–Chile Trench', pts: [[-4, -82], [-10, -79.5], [-15, -76.5], [-20, -71.3], [-25, -71], [-30, -72.2], [-36, -74], [-42, -75], [-46, -76.5]] },
+            { name: 'Tonga–Kermadec Trench', pts: [[-15.5, -173.5], [-20, -174.5], [-25, -175.5], [-30, -177], [-35, -178.5], [-38, 179]] },
+            { name: 'Hikurangi Trough', pts: [[-38.5, 179], [-40, 177.7], [-41.5, 176]] },
+            { name: 'New Hebrides Trench', pts: [[-13, 166], [-16.5, 167.7], [-20, 169.3], [-22, 170.5]] },
+            { name: 'New Britain–Solomon Trench', pts: [[-9, 161.5], [-8, 157], [-6.8, 153.5], [-6, 150.5]] },
+            { name: 'Sunda (Java) Trench', pts: [[6, 93], [1, 96.5], [-5, 102.5], [-8.7, 108.5], [-10.3, 114.5], [-10.7, 119.5], [-9.5, 123.5]] }
+        ];
+        trenches.forEach(t => {
+            const pts = P(t.pts);
+            L.polyline(pts, { color: '#22d3ee', weight: 9, opacity: 0.18, interactive: false }).addTo(trenchLayer);
+            L.polyline(pts, { color: '#22d3ee', weight: 4.5, opacity: 0.95, lineCap: 'round', lineJoin: 'round' })
+                .bindTooltip(t.name, { sticky: true, className: 'tect-tooltip' })
+                .addTo(trenchLayer);
+        });
+
+        // ------------------------------------------------------------------
+        // VOLCANO MARKERS
+        // ------------------------------------------------------------------
+        top5Volcanoes.forEach(vol => {
+            const customIcon = L.divIcon({
+                className: 'custom-volcano-marker',
+                html: `<div class="relative flex items-center justify-center">
+                    <span class="absolute w-9 h-9 rounded-full bg-red-500/50 animate-ping"></span>
+                    <div class="w-7 h-7 rounded-full bg-red-600 border-2 border-white shadow-xl flex items-center justify-center text-white text-xs font-bold z-10">
+                        <i class="fa-solid fa-volcano text-[11px]"></i>
+                    </div>
+                    <div class="absolute left-9 bg-slate-900/95 text-white text-xs font-bold px-2 py-0.5 rounded-md border border-slate-700 shadow-xl whitespace-nowrap">
+                        ${vol.name}
+                    </div>
+                </div>`,
+                iconSize: [28, 28],
+                iconAnchor: [14, 14]
+            });
+
+            const marker = L.marker([vol.lat, vol.lng], { icon: customIcon }).addTo(volcanoLayer);
+            marker.on('click', () => openVolcanoModal(vol));
+        });
+
+        ringOfFireVolcanoes.forEach(vol => {
+            const ringIcon = L.divIcon({
+                className: 'custom-ring-marker',
+                html: `<div class="w-5 h-5 rounded-full bg-amber-500 border-2 border-white shadow-lg flex items-center justify-center text-slate-950 text-[10px] font-bold">
+                    <i class="fa-solid fa-mountain text-[9px]"></i>
+                </div>`,
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+            });
+            L.marker(PP([vol.lat, vol.lng]), { icon: ringIcon })
+                .bindTooltip(vol.name, { direction: 'top', offset: [0, -8], className: 'tect-tooltip' })
+                .addTo(volcanoLayer);
+        });
+
+        // Populate Quick List
+        const quickListContainer = document.getElementById('phVolcanoQuickList');
+        top5Volcanoes.forEach(vol => {
+            const item = document.createElement('div');
+            item.className = 'flex items-center justify-between p-2 rounded-xl bg-slate-900/60 hover:bg-slate-800 cursor-pointer transition-colors border border-slate-800';
+            item.innerHTML = `
+                <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]"></div>
+                    <span class="text-xs font-medium text-slate-200">${vol.name}</span>
+                </div>
+                <span class="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded font-bold font-mono">${vol.elevation}</span>
+            `;
+            item.onclick = () => {
+                map.flyTo([vol.lat, vol.lng], 12, { duration: 1.5 });
+                setTimeout(() => openVolcanoModal(vol), 1600);
+            };
+            quickListContainer.appendChild(item);
+        });
+
+        // ------------------------------------------------------------------
+        // MODAL + CONTROLS
+        // ------------------------------------------------------------------
+        function openVolcanoModal(vol) {
+            document.getElementById('modalTitle').innerText = vol.name;
+            document.getElementById('modalBadge').innerText = vol.badge;
+            document.getElementById('modalElevation').innerText = vol.elevation;
+            document.getElementById('modalLocation').innerText = vol.location;
+            document.getElementById('modalStatus').innerText = vol.status;
+            document.getElementById('modalLastEruption').innerText = vol.lastEruption;
+            document.getElementById('modalRadius').innerText = vol.radius;
+            document.getElementById('modalDescription').innerText = vol.desc;
+
+            map.flyTo([vol.lat, vol.lng], 13, { duration: 1.5 });
+
+            const modal = document.getElementById('simulationModal');
+            const card = document.getElementById('modalCard');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                card.classList.remove('scale-95');
+                card.classList.add('scale-100');
+            }, 10);
+
+            startCanvasAnimation();
+        }
+
+        function closeSimulationModal() {
+            const modal = document.getElementById('simulationModal');
+            const card = document.getElementById('modalCard');
+            modal.classList.add('opacity-0');
+            card.classList.remove('scale-100');
+            card.classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                stopCanvasAnimation();
+            }, 300);
+        }
+
+        function toggleLayer(layerName) {
+            const isChecked = document.getElementById(`layer${layerName.charAt(0).toUpperCase() + layerName.slice(1)}`).checked;
+            if (layerName === 'volcanoes') isChecked ? map.addLayer(volcanoLayer) : map.removeLayer(volcanoLayer);
+            if (layerName === 'plates') isChecked ? map.addLayer(plateLayer) : map.removeLayer(plateLayer);
+            if (layerName === 'faults') isChecked ? map.addLayer(faultLayer) : map.removeLayer(faultLayer);
+            if (layerName === 'trenches') isChecked ? map.addLayer(trenchLayer) : map.removeLayer(trenchLayer);
+            if (layerName === 'ring') {
+                isChecked ? map.addLayer(ringOfFireArcLayer) : map.removeLayer(ringOfFireArcLayer);
+                isRingArcVisible = isChecked;
+            }
+        }
+
+        let isRingArcVisible = true;
+        function drawRingOfFireArc() {
+            isRingArcVisible = !isRingArcVisible;
+            const cb = document.getElementById('layerRing');
+            if (cb) cb.checked = isRingArcVisible;
+            if (isRingArcVisible) {
+                map.addLayer(ringOfFireArcLayer);
+                map.flyTo(PACIFIC_CENTER, DEFAULT_ZOOM, { duration: 2 });
+            } else {
+                map.removeLayer(ringOfFireArcLayer);
+            }
+        }
+
+        function focusOnPhilippines() {
+            if (!map.hasLayer(ringOfFireArcLayer)) {
+                map.addLayer(ringOfFireArcLayer);
+                isRingArcVisible = true;
+                const cb = document.getElementById('layerRing');
+                if (cb) cb.checked = true;
+            }
+            map.flyTo([13.4125, 122.5657], 6, { duration: 2 });
+        }
+
+        function resetMapView() {
+            map.flyTo(PACIFIC_CENTER, DEFAULT_ZOOM, { duration: 1.5 });
+        }
+
+        // ------------------------------------------------------------------
+        // Eruption Canvas Simulation Logic
+        // ------------------------------------------------------------------
+        const canvas = document.getElementById('eruptionCanvas');
+        const ctx = canvas.getContext('2d');
+        let animationFrameId = null;
+        let particles = [];
+        let isEruptingSim = false;
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        function startCanvasAnimation() {
+            resizeCanvas();
+            particles = [];
+            isEruptingSim = false;
+
+            for (let i = 0; i < 40; i++) {
+                particles.push({
+                    x: canvas.width / 2 + (Math.random() - 0.5) * 60,
+                    y: canvas.height * 0.8 + (Math.random() - 0.5) * 20,
+                    vx: (Math.random() - 0.5) * 0.8,
+                    vy: -Math.random() * 1.5 - 0.5,
+                    radius: Math.random() * 15 + 5,
+                    color: 'rgba(100, 116, 139, 0.3)',
+                    alpha: Math.random() * 0.5
+                });
+            }
+            loopCanvas();
+        }
+
+        function stopCanvasAnimation() {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        }
+
+        function triggerEruptionSimulation() {
+            isEruptingSim = true;
+            const modalBody = document.getElementById('modalCard');
+            modalBody.classList.add('animate-shake');
+            setTimeout(() => {
+                modalBody.classList.remove('animate-shake');
+                isEruptingSim = false;
+            }, 2500);
+
+            for (let i = 0; i < 150; i++) {
+                particles.push({
+                    x: canvas.width / 2 + (Math.random() - 0.5) * 40,
+                    y: canvas.height * 0.8,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: -Math.random() * 12 - 4,
+                    radius: Math.random() * 8 + 2,
+                    color: Math.random() > 0.4 ? '#ef4444' : '#f59e0b',
+                    alpha: 1.0,
+                    isLava: true
+                });
+            }
+        }
+
+        function loopCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#050811';
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2 - 120, canvas.height);
+            ctx.lineTo(canvas.width / 2, canvas.height * 0.3);
+            ctx.lineTo(canvas.width / 2 + 120, canvas.height);
+            ctx.closePath();
+            ctx.fill();
+
+            if (isEruptingSim) {
+                const gradient = ctx.createRadialGradient(canvas.width / 2, canvas.height * 0.3, 5, canvas.width / 2, canvas.height * 0.3, 80);
+                gradient.addColorStop(0, 'rgba(239, 68, 68, 0.8)');
+                gradient.addColorStop(1, 'rgba(239, 68, 68, 0)');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                if (p.isLava) {
+                    p.vy += 0.2;
+                    p.alpha -= 0.01;
+                } else {
+                    p.radius += 0.2;
+                    p.alpha -= 0.005;
+                }
+
+                if (p.alpha <= 0 || p.y > canvas.height) {
+                    particles.splice(i, 1);
+                    continue;
+                }
+
+                ctx.save();
+                ctx.globalAlpha = Math.max(0, p.alpha);
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+            animationFrameId = requestAnimationFrame(loopCanvas);
+        }
+    </script>
+</body>
+</html>
